@@ -1,0 +1,6 @@
+{
+  "name": "Physics Rally",
+  "description": "Master physics through Newton's Challenge! Race through challenging terrains by solving physics quizzes, earning coins, and unlocking fast cars.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
