@@ -36,6 +36,17 @@ export interface Achievement {
   earned: boolean;
 }
 
+export interface DailyQuest {
+  id: string;
+  description: string;
+  target: number;
+  current: number;
+  reward: number;
+  completed: boolean;
+  claimed: boolean;
+  type: 'solve_questions' | 'perfect_level' | 'earn_coins';
+}
+
 export interface GameState {
   coins: number;
   xp: number;
@@ -47,4 +58,6 @@ export interface GameState {
   currentLevel: number;
   lastLoginDate?: string; // YYYY-MM-DD
   consecutiveDays?: number; // count of consecutive days
+  dailyQuests?: DailyQuest[];
+  questsLastUpdatedDate?: string; // YYYY-MM-DD
 }

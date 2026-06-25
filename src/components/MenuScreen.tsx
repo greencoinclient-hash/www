@@ -7,16 +7,17 @@ interface MenuScreenProps {
   onPlay: () => void;
   onNavigate: (screen: string) => void;
   carEmoji: string;
+  onClaimQuest?: (questId: string) => void;
 }
 
-export default function MenuScreen({ state, onPlay, onNavigate, carEmoji }: MenuScreenProps) {
+export default function MenuScreen({ state, onPlay, onNavigate, carEmoji, onClaimQuest }: MenuScreenProps) {
   return (
     <motion.div
       id="menuScreen"
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -15 }}
-      className="flex flex-col items-center justify-center min-h-[90vh] text-center px-4 py-8"
+      className="flex flex-col items-center justify-center min-h-[90vh] text-center px-4 py-8 space-y-4"
     >
       <div className="max-w-md w-full bg-slate-900/60 backdrop-blur-md border border-slate-800 p-8 rounded-3xl shadow-2xl relative overflow-hidden">
         {/* Glow effect */}
@@ -123,6 +124,85 @@ export default function MenuScreen({ state, onPlay, onNavigate, carEmoji }: Menu
           </div>
         </div>
       </div>
+
+      {/* Daily Quests Card */}
+      {state.dailyQuests && state.dailyQuests.length > 0 && (
+        <div className="max-w-md w-full bg-slate-900/60 backdrop-blur-md border border-slate-800 p-6 rounded-3xl shadow-2xl text-left relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-16 h-16 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
+          
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-black text-slate-200 tracking-wider uppercase flex items-center gap-1.5">
+              <span className="text-amber-500 animate-pulse">⚡</span> Daily Missions
+            </h3>
+            <span className="text-[9px] text-slate-400 font-mono uppercase bg-slate-950/80 px-2 py-0.5 rounded-md border border-slate-800/80">
+              Resets Daily
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {state.dailyQuests.map((quest) => {
+              const pct = Math.min(100, (quest.current / quest.target) * 100);
+              const isCompleted = quest.completed;
+              const isClaimed = quest.claimed;
+
+              return (
+                <div
+                  key={quest.id}
+                  className={`p-3 rounded-xl border transition-all duration-200 flex items-center justify-between gap-4 ${
+                    isClaimed
+                      ? 'bg-slate-950/30 border-slate-900 opacity-60'
+                      : isCompleted
+                      ? 'bg-amber-950/20 border-amber-500/40'
+                      : 'bg-slate-950/60 border-slate-850'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-slate-200 flex items-center gap-1">
+                      {isCompleted && !isClaimed && <span className="text-amber-400">✨</span>}
+                      {quest.description}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="flex-1 bg-slate-800/80 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            isCompleted ? 'bg-amber-500' : 'bg-amber-500/60'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400 font-bold">
+                        {quest.current}/{quest.target}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="text-[10px] text-amber-400 font-extrabold mb-1 font-mono">
+                      +🪙{quest.reward}
+                    </span>
+                    {isClaimed ? (
+                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider bg-slate-900/40 px-2 py-1 rounded border border-slate-850">
+                        Claimed
+                      </span>
+                    ) : isCompleted ? (
+                      <button
+                        onClick={() => onClaimQuest?.(quest.id)}
+                        className="text-[10px] text-slate-950 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 font-black px-3 py-1 rounded-lg uppercase tracking-wider shadow-md shadow-amber-500/20 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                      >
+                        Claim
+                      </button>
+                    ) : (
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider bg-slate-800/40 border border-slate-700/50 px-2 py-0.5 rounded">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

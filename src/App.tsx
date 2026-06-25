@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GameState } from './types';
+import { GameState, DailyQuest } from './types';
 import { LEVELS, CARS, ACHIEVEMENTS } from './data/questions';
 
 import MenuScreen from './components/MenuScreen';
@@ -8,6 +8,15 @@ import LevelScreen from './components/LevelScreen';
 import GarageScreen from './components/GarageScreen';
 import AchievementScreen from './components/AchievementScreen';
 import GameScreen from './components/GameScreen';
+
+import {
+  playClickSound,
+  playUnlockSound,
+  playVictorySound,
+  startBGM,
+  stopBGM,
+  setMutedState,
+} from './utils/audio';
 
 const DEFAULT_STATE: GameState = {
   coins: 0,
@@ -20,10 +29,88 @@ const DEFAULT_STATE: GameState = {
   currentLevel: 1,
 };
 
+function generateDailyQuests(): DailyQuest[] {
+  return [
+    {
+      id: 'quest_solve',
+      description: 'Solve 3 physics problems correctly',
+      target: 3,
+      current: 0,
+      reward: 100,
+      completed: false,
+      claimed: false,
+      type: 'solve_questions',
+    },
+    {
+      id: 'quest_perfect',
+      description: 'Achieve a 3-Star (Perfect) run on any level',
+      target: 1,
+      current: 0,
+      reward: 150,
+      completed: false,
+      claimed: false,
+      type: 'perfect_level',
+    },
+    {
+      id: 'quest_coins',
+      description: 'Earn 100 base coins from driving runs',
+      target: 100,
+      current: 0,
+      reward: 80,
+      completed: false,
+      claimed: false,
+      type: 'earn_coins',
+    },
+  ];
+}
+
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(DEFAULT_STATE);
   const [activeScreen, setActiveScreen] = useState<string>('menuScreen');
   const [activeLevelId, setActiveLevelId] = useState<number | null>(null);
+
+  // Mute game audio setting (stored in local storage)
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('physics_rally_muted');
+      return saved === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+
+  // Sync mute state and start background music loops
+  useEffect(() => {
+    setMutedState(isMuted);
+    if (!isMuted) {
+      startBGM();
+    } else {
+      stopBGM();
+    }
+    try {
+      localStorage.setItem('physics_rally_muted', String(isMuted));
+    } catch (e) {}
+  }, [isMuted]);
+
+  // Handle browser audio autoplay restrictions by playing on first user click or press
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      if (!isMuted) {
+        startBGM();
+      }
+      window.removeEventListener('mousedown', handleFirstInteraction);
+      window.removeEventListener('keydown', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+    window.addEventListener('mousedown', handleFirstInteraction);
+    window.addEventListener('keydown', handleFirstInteraction);
+    window.addEventListener('touchstart', handleFirstInteraction);
+    return () => {
+      window.removeEventListener('mousedown', handleFirstInteraction);
+      window.removeEventListener('keydown', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+  }, [isMuted]);
 
   // Daily login bonus state
   const [loginBonusClaimed, setLoginBonusClaimed] = useState<{
@@ -47,12 +134,23 @@ export default function App() {
           levelStars: parsed.levelStars || {},
           achievements: parsed.achievements || {},
           unlockedCars: parsed.unlockedCars || ['basic'],
+          dailyQuests: parsed.dailyQuests || undefined,
+          questsLastUpdatedDate: parsed.questsLastUpdatedDate || undefined,
         };
       }
 
-      // Check daily login bonus
+      // Check daily login bonus & daily quests refresh
       const today = new Date().toISOString().slice(0, 10);
       const lastLogin = loadedState.lastLoginDate;
+
+      // Check daily quests
+      let quests = loadedState.dailyQuests;
+      let questsDate = loadedState.questsLastUpdatedDate;
+
+      if (!quests || questsDate !== today) {
+        quests = generateDailyQuests();
+        questsDate = today;
+      }
 
       if (lastLogin !== today) {
         const yesterday = new Date();
@@ -76,6 +174,8 @@ export default function App() {
           coins: loadedState.coins + bonus,
           lastLoginDate: today,
           consecutiveDays: streak,
+          dailyQuests: quests,
+          questsLastUpdatedDate: questsDate,
         };
 
         setGameState(updatedState);
@@ -84,7 +184,13 @@ export default function App() {
         // Display the claim celebration popup
         setLoginBonusClaimed({ streak, bonus });
       } else {
-        setGameState(loadedState);
+        const updatedState = {
+          ...loadedState,
+          dailyQuests: quests,
+          questsLastUpdatedDate: questsDate,
+        };
+        setGameState(updatedState);
+        localStorage.setItem('physics_rally_state', JSON.stringify(updatedState));
       }
     } catch (e) {
       console.error('Error loading game state:', e);
@@ -101,20 +207,88 @@ export default function App() {
     }
   };
 
+  // Mutate quest progress pure helper
+  const mutateQuestProgress = (
+    stateToUpdate: GameState,
+    type: 'solve_questions' | 'perfect_level' | 'earn_coins',
+    amount: number
+  ): GameState => {
+    if (!stateToUpdate.dailyQuests) return stateToUpdate;
+
+    const updatedQuests = stateToUpdate.dailyQuests.map((quest) => {
+      if (quest.type !== type || quest.completed) return quest;
+
+      const nextCurrent = Math.min(quest.target, quest.current + amount);
+      const isCompleted = nextCurrent >= quest.target;
+
+      return {
+        ...quest,
+        current: nextCurrent,
+        completed: isCompleted,
+      };
+    });
+
+    return {
+      ...stateToUpdate,
+      dailyQuests: updatedQuests,
+    };
+  };
+
+  // Progress question correct answers
+  const handleQuestionCorrect = () => {
+    setGameState((prev) => {
+      const next = mutateQuestProgress(prev, 'solve_questions', 1);
+      try {
+        localStorage.setItem('physics_rally_state', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  // Claim quest reward coins
+  const handleClaimQuestReward = (questId: string) => {
+    if (!gameState.dailyQuests) return;
+
+    const quest = gameState.dailyQuests.find((q) => q.id === questId);
+    if (!quest || !quest.completed || quest.claimed) return;
+
+    playUnlockSound();
+
+    const updatedQuests = gameState.dailyQuests.map((q) =>
+      q.id === questId ? { ...q, claimed: true } : q
+    );
+
+    const nextState = {
+      ...gameState,
+      coins: gameState.coins + quest.reward,
+      dailyQuests: updatedQuests,
+    };
+
+    saveState(nextState);
+  };
+
   // Helper to find the active car's emoji representation
   const getActiveCarEmoji = () => {
     const car = CARS.find((c) => c.id === gameState.activeCar);
     return car ? car.emoji : '🚗';
   };
 
+  // Helper for screen navigation with sound feedback
+  const handleNavigate = (screen: string) => {
+    playClickSound();
+    setActiveScreen(screen);
+  };
+
   // Triggers level selection
   const handleSelectLevel = (levelId: number) => {
+    playClickSound();
     setActiveLevelId(levelId);
     setActiveScreen('gameScreen');
   };
 
   // Starts the next incomplete level
   const handlePlayNow = () => {
+    playClickSound();
     const maxCompleted = gameState.completedLevels.length > 0 ? Math.max(...gameState.completedLevels) : 0;
     const nextLevel = maxCompleted + 1;
 
@@ -130,6 +304,7 @@ export default function App() {
   const handleUnlockCar = (carId: string, cost: number) => {
     if (gameState.coins < cost) return;
 
+    playUnlockSound();
     const newUnlocked = [...gameState.unlockedCars, carId];
     const nextState = {
       ...gameState,
@@ -147,6 +322,7 @@ export default function App() {
   const handleSelectCar = (carId: string) => {
     if (!gameState.unlockedCars.includes(carId)) return;
 
+    playClickSound();
     const nextState = {
       ...gameState,
       activeCar: carId,
@@ -227,7 +403,7 @@ export default function App() {
       [levelId]: Math.max(gameState.levelStars[levelId] || 0, stars),
     };
 
-    const nextState = {
+    let nextState = {
       ...gameState,
       coins: gameState.coins + coinsEarned,
       xp: gameState.xp + xpEarned,
@@ -243,6 +419,12 @@ export default function App() {
       };
     }
 
+    // Mutate daily quest progress
+    nextState = mutateQuestProgress(nextState, 'earn_coins', coinsEarned);
+    if (stars === 3) {
+      nextState = mutateQuestProgress(nextState, 'perfect_level', 1);
+    }
+
     const evaluatedState = evaluateAchievements(nextState);
     saveState(evaluatedState);
 
@@ -256,14 +438,30 @@ export default function App() {
       {/* Ambient background grids */}
       <div className="fixed inset-0 bg-[linear-gradient(to_right,#020617_1px,transparent_1px),linear-gradient(to_bottom,#020617_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_40%,#000_70%,transparent_100%)] pointer-events-none z-0 opacity-40" />
 
+      {/* Floating Audio Controller */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+        <button
+          onClick={() => {
+            playClickSound();
+            setIsMuted(!isMuted);
+          }}
+          className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-amber-400 hover:border-amber-500/50 backdrop-blur-sm transition-all shadow-lg hover:scale-105 cursor-pointer flex items-center gap-1.5 text-xs font-mono font-bold"
+          title={isMuted ? 'Unmute game sound' : 'Mute game sound'}
+        >
+          <span>{isMuted ? '🔇' : '🔊'}</span>
+          <span className="hidden sm:inline uppercase">{isMuted ? 'Muted' : 'Sound On'}</span>
+        </button>
+      </div>
+
       {/* Primary Container */}
       <main className="flex-1 relative z-10 w-full flex flex-col justify-center">
         {activeScreen === 'menuScreen' && (
           <MenuScreen
             state={gameState}
             onPlay={handlePlayNow}
-            onNavigate={setActiveScreen}
+            onNavigate={handleNavigate}
             carEmoji={getActiveCarEmoji()}
+            onClaimQuest={handleClaimQuestReward}
           />
         )}
 
@@ -272,7 +470,7 @@ export default function App() {
             state={gameState}
             levels={LEVELS}
             onSelectLevel={handleSelectLevel}
-            onBack={() => setActiveScreen('menuScreen')}
+            onBack={() => handleNavigate('menuScreen')}
           />
         )}
 
@@ -281,12 +479,12 @@ export default function App() {
             state={gameState}
             onUnlockCar={handleUnlockCar}
             onSelectCar={handleSelectCar}
-            onBack={() => setActiveScreen('menuScreen')}
+            onBack={() => handleNavigate('menuScreen')}
           />
         )}
 
         {activeScreen === 'achievementScreen' && (
-          <AchievementScreen state={gameState} onBack={() => setActiveScreen('menuScreen')} />
+          <AchievementScreen state={gameState} onBack={() => handleNavigate('menuScreen')} />
         )}
 
         {activeScreen === 'gameScreen' && activeLevelId !== null && (
@@ -295,7 +493,9 @@ export default function App() {
             state={gameState}
             activeCarEmoji={getActiveCarEmoji()}
             onCompleteLevel={handleCompleteLevel}
+            onQuestionCorrect={handleQuestionCorrect}
             onExit={() => {
+              playClickSound();
               setActiveScreen('levelScreen');
               setActiveLevelId(null);
             }}
@@ -375,7 +575,10 @@ export default function App() {
               </div>
 
               <button
-                onClick={() => setLoginBonusClaimed(null)}
+                onClick={() => {
+                  playUnlockSound();
+                  setLoginBonusClaimed(null);
+                }}
                 className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-sm rounded-xl hover:opacity-95 shadow-lg shadow-amber-500/10 transition-opacity flex items-center justify-center gap-1 cursor-pointer"
               >
                 CLAIM COINS & DRIVE

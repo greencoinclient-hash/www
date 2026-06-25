@@ -4,6 +4,7 @@ import { ArrowLeft, Check, X, Star, HelpCircle, ChevronRight, Pause, RotateCcw, 
 import { GameState, Question } from '../types';
 import { LEVELS, QUESTIONS } from '../data/questions';
 import GameCanvas from './GameCanvas';
+import { playClickSound, playCorrectSound, playWrongSound, playVictorySound } from '../utils/audio';
 
 interface GameScreenProps {
   levelId: number;
@@ -11,6 +12,7 @@ interface GameScreenProps {
   activeCarEmoji: string;
   onCompleteLevel: (levelId: number, stars: number, coinsEarned: number, xpEarned: number) => void;
   onExit: () => void;
+  onQuestionCorrect?: () => void;
 }
 
 export default function GameScreen({
@@ -19,6 +21,7 @@ export default function GameScreen({
   activeCarEmoji,
   onCompleteLevel,
   onExit,
+  onQuestionCorrect,
 }: GameScreenProps) {
   const level = LEVELS.find((l) => l.id === levelId) || LEVELS[0];
 
@@ -143,6 +146,8 @@ export default function GameScreen({
     setIsCorrect(correct);
 
     if (correct) {
+      playCorrectSound();
+      if (onQuestionCorrect) onQuestionCorrect();
       const nextCorrect = questionsCorrect + 1;
       setQuestionsCorrect(nextCorrect);
       setQuestionsAnswered((prev) => prev + 1);
@@ -157,10 +162,18 @@ export default function GameScreen({
       setCarTargetX(newTarget);
       setCarMoving(true);
     } else {
+      playWrongSound();
       // Wrong answer shakes vehicle
       setWrongAnswerShake(10);
     }
   };
+
+  // Play Victory sound when showVictory is triggered
+  useEffect(() => {
+    if (showVictory) {
+      playVictorySound();
+    }
+  }, [showVictory]);
 
   const triggerPopup = (text: string) => {
     const id = popupIdRef.current++;
@@ -177,6 +190,7 @@ export default function GameScreen({
   };
 
   const handleNextQuestion = () => {
+    playClickSound();
     if (questionsAnswered >= level.questionsNeeded) {
       // Reach the finish checkpoint
       setCarTargetX(90);
@@ -188,6 +202,7 @@ export default function GameScreen({
   };
 
   const handleRetryQuestion = () => {
+    playClickSound();
     // Shuffles other choices for same question to keep it fresh
     if (!currentQ) return;
     const shuffledChoices = [...currentQ.choices].sort(() => Math.random() - 0.5);
@@ -198,12 +213,14 @@ export default function GameScreen({
   };
 
   const triggerVictoryClaim = () => {
+    playClickSound();
     const accuracy = questionsCorrect / Math.max(questionsAnswered, 1);
     const stars = accuracy >= 1 ? 3 : accuracy >= 0.7 ? 2 : 1;
     onCompleteLevel(level.id, stars, level.coins, level.xp);
   };
 
   const restartLevelRun = () => {
+    playClickSound();
     setQuestionsAnswered(0);
     setQuestionsCorrect(0);
     setCarX(8);
